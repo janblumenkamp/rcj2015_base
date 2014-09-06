@@ -1,0 +1,13 @@
+*.[oa]
+*~
+*.elf
+*.hex
+*.el
+*.config
+*creator*
+*.files
+*.includes
+LICENSE
+README.md
+*.pdf
+*.txt
