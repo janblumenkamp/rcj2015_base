@@ -11,38 +11,38 @@
 ///
 ///	Register:
 /// 0			Systemstatus
-/// 1			ADC 0 LSB
-/// 2			ADC 0 MSB
-/// 3			ADC 1 LSB
-/// 4			ADC 1 MSB
-/// 5			ADC 2 LSB
-/// 6			ADC 2 MSB
-/// 7			ADC 3 LSB
-/// 8			ADC 3 MSB
-/// 9			ADC 4 LSB
-/// 10			ADC 4 MSB
-/// 11			ADC 5 LSB
-/// 12			ADC 5 MSB
+/// 1			DIST_BACK_RIGHT LSB
+/// 2			DIST_BACK_RIGHT MSB
+/// 3			DIST_RIGHT_BACK LSB
+/// 4			DIST_RIGHT_BACK MSB
+/// 5			DIST_LEFT_BACK  LSB
+/// 6			DIST_LEFT_BACK  MSB
+/// 7			DIST_BACK_LEFT  LSB
+/// 8			DIST_BACK_LEFT  MSB
+/// 9			DIST_FRONT_FRONT LSB
+/// 10			DIST_FRONT_FRONT MSB
+/// 11			DIST_BACK_BACK   LSB
+/// 12			DIST_BACK_BACK   MSB
 /// 13			ADC 6 LSB
 /// 14			ADC 6 MSB
-/// 15			ADC 7 LSB
-/// 16			ADC 7 MSB
+/// 15			DIST_DOWN LSB
+/// 16			DIST_DOWN MSB
 /// 17			ADC 8 LSB
 /// 18			ADC 8 MSB
-/// 19			ADC 9 LSB
-/// 20			ADC 9 MSB
-/// 21			ADC 10 LSB
-/// 22			ADC 10 MSB
-/// 23			ADC 11 LSB
-/// 24			ADC 11 MSB
-/// 25			ADC 12 LSB
-/// 26			ADC 12 MSB
-/// 27			ADC 13 LSB
-/// 28			ADC 13 MSB
-/// 29			ADC 14 LSB
-/// 30			ADC 14 MSB
-/// 31			ADC 15 LSB
-/// 32			ADC 15 MSB
+/// 19			ADC_BATTERY LSB
+/// 20			ADC_BATTERY MSB
+/// 21			DIST_FRONT_LEFT LSB
+/// 22			DIST_FRONT_LEFT MSB
+/// 23			DIST_LEFT_FRONT LSB
+/// 24			DIST_LEFT_FRONT MSB
+/// 25			SENS_IMPASSE_1 LSB
+/// 26			SENS_IMPASSE_1 MSB
+/// 27			SENS_IMPASSE_1 LSB
+/// 28			SENS_IMPASSE_1 MSB
+/// 29			DIST_RIGHT_FRONT LSB
+/// 30			DIST_RIGHT_FRONT MSB
+/// 31			DIST_FRONT_RIGHT LSB
+/// 32			DIST_FRONT_RIGHT MSB
 /// 33			Batterie in mV LSB
 /// 34			Batterie in mV MSB
 /// 35			Batterie in %
@@ -137,7 +137,7 @@ Purpose:  called when the UART1 has received a character
 		if(comm_batch_i < (comm_batch & COMM_BATCH))
 			comm_buf[comm_batch_i] = data;
 		else
-			sm = 4; //checksum
+			comm_sm = 4; //checksum
 		break;
 	case 4: //Checksum LSB
 

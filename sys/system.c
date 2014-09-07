@@ -130,13 +130,13 @@ void init_timer(void)
 	OCR1A = 250; //1kHz; Scheduler
 	
 	//OC2A: ADC
-	TCCR2A = (1<<WGM21);
+/*	TCCR2A = (1<<WGM21);
 					
 	TCCR2B = (1<<CS21); //Presc. 8
 
 	TIMSK2 = (1<<OCIE2A);
 
-	OCR2A = 250; //8kHz 250
+	OCR2A = 250; //8kHz 250*/
 }
 
 ////////////////////////////Taster, Bumper//////////////////////////////////////

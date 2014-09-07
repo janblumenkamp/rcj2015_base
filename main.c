@@ -127,13 +127,6 @@ ISR(TIMER1_COMPA_vect) //1kHz
 			currentTask -= 1;
 			sei();
 		}
-		/*else if((tasks[i].elapsedTime >= tasks[i].period)	// Task ready
-				&& (tasks[i].running))											// Task still running
-		{
-			displayvar[4] = i;
-			tasks[i].period = 1000;
-			tasks[i].running = 0;
-		}*/
 		tasks[i].elapsedTime += TASKPERIOD_GCD;
 	}
 }
@@ -269,6 +262,8 @@ int main(void)
 		//LED heartbeat
 
 		led_rgb(led_heartbeatColor, led_fault, led_top);
+
+		_delay_ms(30);
   }
 	
 	return 0;
@@ -307,25 +302,25 @@ int8_t task_timer(int8_t state)
 	//////(rotary) encoder///////////
 	//Source: http://www.mikrocontroller.net/articles/Drehgeber
 
-	int8_t new, diff;
+	int8_t enc_new, diff;
 			 
-	new = 0;
-	if(ENC_L_PHASE_A)		new = 3;
-	if(ENC_L_PHASE_B)		new ^= 1;		// convert gray to binary
-	diff = enc_l_last - new;				// difference last - new
+	enc_new = 0;
+	if(ENC_L_PHASE_A)		enc_new = 3;
+	if(ENC_L_PHASE_B)		enc_new ^= 1;		// convert gray to binary
+	diff = enc_l_last - enc_new;				// difference last - enc_new
 	if( diff & 1 ){									// bit 0 = value (1)
-		enc_l_last = new;							// store new as next last
+		enc_l_last = enc_new;							// store enc_new as next last
 
 		mot.d[LEFT].enc += (diff & 2) - 1;	// bit 1 = direction (+/-)
 		mot.d[LEFT].enc_abs += abs((diff & 2) -1);
 	}
 
-	new = 0;
-	if(ENC_R_PHASE_A)		new = 3;
-	if(ENC_R_PHASE_B)		new ^= 1;		// convert gray to binary
-	diff = enc_r_last - new;				// difference last - new
+	enc_new = 0;
+	if(ENC_R_PHASE_A)		enc_new = 3;
+	if(ENC_R_PHASE_B)		enc_new ^= 1;		// convert gray to binary
+	diff = enc_r_last - enc_new;				// difference last - enc_new
 	if( diff & 1 ){									// bit 0 = value (1)
-		enc_r_last = new;							// store new as next last
+		enc_r_last = enc_new;							// store enc_new as next last
 		mot.d[RIGHT].enc += (diff & 2) - 1;	// bit 1 = direction (+/-)
 		mot.d[RIGHT].enc_abs += abs((diff & 2) -1);
 	}

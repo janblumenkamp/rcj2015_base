@@ -3,6 +3,7 @@
 *.elf
 *.hex
 *.el
+*.dis
 *.config
 *creator*
 *.files
