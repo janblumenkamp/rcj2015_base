@@ -61,7 +61,6 @@ uint8_t led_top = 0;				//Point when the led swells down -> indirectly speed of 
 #define LED_TOP_FAT_ERR 10
 #define LED_TOP_NORMAL	30
 
-#define TOGGLE_MAIN_LED() PORTD ^= (1<<PD5);
 /////////////////////////////////
 
 int8_t batt_percent = 0;
@@ -95,6 +94,7 @@ uint8_t debug_err_sendOneTime = 0;
 int8_t timer_entpr_tast = 0;
 int8_t timer_bt_is_busy = 0;
 int8_t timer_get_tast = 0;
+int8_t timer_mainloop = 0;
 
 uint8_t timer_25ms = 0; //make the upper timers decrement only every 25ms in the timer task
 
@@ -199,7 +199,8 @@ int main(void)
     {
 		wdt_reset();
 
-		TOGGLE_MAIN_LED(); //Toggle LED on the RNmega Board
+		////////////////////////////////////////////////////////////////////////////
+		comm_handler(); //Handle and respond to comm requests.
 
 		////////////////////////////////////////////////////////////////////////////
 		if(get_t1())
@@ -222,50 +223,52 @@ int main(void)
 			hold_t1 = 0;
 		}
 
-		////////////////////Sensorcoordination//////////////////////////////////////
+		////////////////////LED etc...//////////////////////////////////////
 
-		if(check_res || fatal_err)	//Flashing of the Info LED when there is an error
-			led_fault = 1;
-		else
-			led_fault = 0;
-		
-		if(fatal_err)
-			led_top = LED_TOP_FAT_ERR;
-		else
-			led_top = LED_TOP_NORMAL;
-			
-		if(check_res)
+		if(timer_mainloop == 0)
 		{
-			if(!(debug_err_sendOneTime & (1<<0)))
+			if(check_res || fatal_err)	//Flashing of the Info LED when there is an error
+				led_fault = 1;
+			else
+				led_fault = 0;
+
+			if(fatal_err)
+				led_top = LED_TOP_FAT_ERR;
+			else
+				led_top = LED_TOP_NORMAL;
+
+			if(check_res)
 			{
-				if(debug > 1){bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr_P(PSTR(": ERROR: RESET"));}
-				debug_err_sendOneTime |= (1<<0);
+				if(!(debug_err_sendOneTime & (1<<0)))
+				{
+					if(debug > 1){bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr_P(PSTR(": ERROR: RESET"));}
+					debug_err_sendOneTime |= (1<<0);
+				}
 			}
-		}
-		else	debug_err_sendOneTime &= ~(1<<0);
-				
-		//Batterie/Akku
-		if(batt_raw > 0)
-		{
-			batt_mV = (batt_raw*15)-300;
+			else	debug_err_sendOneTime &= ~(1<<0);
 
-			if(batt_mV < batt_mV_old)
+			//Batterie/Akku
+			if(batt_raw > 0)
 			{
-				batt_mV_old = batt_mV;
-				batt_percent = (0.037*batt_mV) - 363;
+				batt_mV = (batt_raw*15)-300;
+
+				if(batt_mV < batt_mV_old)
+				{
+					batt_mV_old = batt_mV;
+					batt_percent = (0.037*batt_mV) - 363;
+				}
+				if(batt_percent < 20) //Batterie
+					led_heartbeatColor = batt_percent;
 			}
-			if(batt_percent < 20) //Batterie
-				led_heartbeatColor = batt_percent;
+
+			////////////////////////////////////////////////////////////////////////////
+			//LED heartbeat
+
+			led_rgb(led_heartbeatColor, led_fault, led_top);
+
+			timer_mainloop = TIMER_MAINLOOP;
 		}
-
-		////////////////////////////////////////////////////////////////////////////
-		//LED heartbeat
-
-		led_rgb(led_heartbeatColor, led_fault, led_top);
-
-		_delay_ms(30);
-  }
-	
+	}
 	return 0;
 }
 
@@ -338,6 +341,8 @@ int8_t task_timer(int8_t state)
 			timer_bt_is_busy --;
 		if(timer_get_tast > 0)
 			timer_get_tast --;
+		if(timer_mainloop > 0)
+			timer_mainloop --;
 
 		timer_25ms = 0;
 	}

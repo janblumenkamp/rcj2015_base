@@ -5,12 +5,12 @@
 ///	Kommunikation mit Master
 ///
 /// Protokoll:
-///		<Startbyte 0xAB><Register><Batchlength n>(n*<Data>)<Checksumme1><Checksumme2> -> 5 + n Byte pro Paket
+///		<Startbyte 0xAB><Register/Command><Batchlength n>(n*<Data>)<Checksumme1><Checksumme2> -> 5 + n Byte pro Paket
 ///		Slave antwortet genau so.
 ///		Batch: Bit 0..6: Batchlänge, Bit 7: Write access
 ///
-///	Register:
-/// 0			Systemstatus
+///	Register/Command:
+/// 0			Status (succeed/error)
 /// 1			DIST_BACK_RIGHT LSB
 /// 2			DIST_BACK_RIGHT MSB
 /// 3			DIST_RIGHT_BACK LSB
@@ -66,42 +66,42 @@
 ///
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "main.h"
 #include "comm.h"
 #include "uart.h"
+#include "bluetooth.h"
 
 #define COMM_BAUD_SELECT(baudRate,xtalCpu)  (((xtalCpu) + 8UL * (baudRate)) / (16UL * (baudRate)) -1UL)
 
 /** Size of the circular transmit buffer, must be power of 2 */
 #define UART_TX_BUFFER_SIZE 32
 
-#define COMM_REGSIZE 53 //In bytes
-#define COMM_BUFSIZE 128 //In Bytes
-
-#define COMM_BATCH_WRITE	0x80
-#define COMM_BATCH			0x7F
-
 static volatile unsigned char UART1_TxBuf[UART_TX_BUFFER_SIZE];
 static volatile unsigned char UART1_TxHead;
 static volatile unsigned char UART1_TxTail;
 
 static volatile uint8_t comm_reg[COMM_REGSIZE];
-static volatile uint8_t comm_buf[COMM_BUFSIZE];
-static volatile uint8_t comm_lastReg = 0;
-static volatile uint8_t comm_batch = 0;
 
+comm_msg_t receivedMessage;
+uint8_t messageBuffer[COMM_BUFSIZE];
+comm_msg_t sendMessage;
+
+////////////////////////////////////////////////////////////////////////
+/// \brief comm_init
+///		inits comm (usart and other stuff, variables etc...)
 
 void comm_init(void)
 {
 	uart1_init(COMM_BAUD_SELECT(UART_COMM_BAUD_RATE,F_CPU)); //IMU
+	receivedMessage.data = messageBuffer;
 }
 
-uint8_t comm_listen(void)
-{
+//////////////////////////////////////////////////////////////////
+/// \brief ISR(USART1_RX_vect)
+///		listens to the uart and puts a message into a message struct
+///		if receives one
 
-	return 0;
-}
-
-static volatile uint8_t comm_sm;
+static volatile uint8_t comm_sm = 0; //statemachine
 
 ISR(USART1_RX_vect)
 /*************************************************************************
@@ -115,6 +115,8 @@ Purpose:  called when the UART1 has received a character
 	/* read UART status register and UART data register */
 	data = UDR1;
 
+	bt_putCh(data);
+	bt_putCh(' ');
 
 	switch (comm_sm) {
 	case 0:
@@ -122,30 +124,123 @@ Purpose:  called when the UART1 has received a character
 			comm_sm = 1;
 		break;
 	case 1:
-		comm_lastReg = data;
+		receivedMessage.reg = data;
 		comm_sm = 2;
 		break;
 	case 2:
-		comm_batch = data;
+		receivedMessage.batch = (data & COMM_BATCH);
+		receivedMessage.batch_write = (data & COMM_BATCH_WRITE) >> 7;
 
-		if(comm_batch & COMM_BATCH_WRITE)
-			comm_sm = 3; //Write access
+		comm_batch_i = 0;
+
+		if(receivedMessage.batch_write)
+			comm_sm = 3; //Write access! Write into registers.
 		else
-			comm_sm = 4; //Checksum
+			comm_sm = 4; //The master wants ro read. Continue with checksum.
+
 		break;
 	case 3: //Master wants to write in registers
-		if(comm_batch_i < (comm_batch & COMM_BATCH))
-			comm_buf[comm_batch_i] = data;
+		if(comm_batch_i < receivedMessage.batch)
+		{
+			receivedMessage.data[comm_batch_i] = data;
+			comm_batch_i ++;
+		}
 		else
 			comm_sm = 4; //checksum
 		break;
 	case 4: //Checksum LSB
-
-	default:
+		receivedMessage.checksum = data;
+		comm_sm = 5;
+		break;
+	case 5:
+		receivedMessage.checksum |= (data << 8);
+		//Received the package. Let the slave process and respond to it!
+		comm_sm = 6;
+		break;
+	case 6: break; //IDLE, wait for processing of query. Only listen for new packages if processed and answered.
+	default: comm_sm = 0;
 		break;
 	}
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+/// \brief comm_sendPackage
+///		sends the message/the package *msg to the master and also calculates checksum etc.
+/// \param msg
+///		message to send
+
+void comm_sendPackage(comm_msg_t *msg)
+{
+	msg->checksum = 0xAB + msg->reg + (msg->batch_write | msg->batch);
+
+	uart1_putc(0xAB);
+	uart1_putc(msg->reg);
+	uart1_putc(msg->batch_write | msg->batch);
+	for(uint8_t i = 0; i < msg->batch; i++)
+	{
+		uart1_putc(msg->data[i]);
+		msg->checksum += msg->data[i];
+	}
+	uart1_putc(msg->checksum & 0xff);
+	uart1_putc((msg->checksum & 0xff00) >> 8);
+}
+
+//////////////////////////////////////////////////////////////////////
+/// \brief comm_handler
+///		handles the received messages and answers to them (to call as often
+///		as possible)
+
+void comm_handler(void)
+{
+	if(comm_sm == 6) //new package arrived!
+	{
+		TOGGLE_MAIN_LED(); //Toggle LED on the RNmega Board
+
+		//Process...
+		int16_t checksum_calc = 0xAB;
+		checksum_calc += receivedMessage.reg;
+		checksum_calc += (receivedMessage.batch_write | receivedMessage.batch);
+		if(receivedMessage.batch & COMM_BATCH_WRITE)
+		{
+			for(uint8_t i = 0; i < receivedMessage.batch; i++)
+				checksum_calc += receivedMessage.data[i];
+		}
+
+		if(checksum_calc == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
+		{
+			sendMessage.reg = 255;
+			if(receivedMessage.batch_write) //Master wants to write into slave
+			{
+				for(uint8_t i = 0; i < receivedMessage.batch; i++)
+				{
+					comm_reg[receivedMessage.reg + i] = receivedMessage.data[i];
+				}
+				sendMessage.batch_write = 0;
+				sendMessage.batch = 0;
+			}
+			else //Master wants to read -> Slave writes to master
+			{
+				sendMessage.batch_write = 1;
+				sendMessage.batch = receivedMessage.batch;
+				sendMessage.data = (uint8_t *) &comm_reg[receivedMessage.reg];
+			}
+		}
+		else //Send error message.
+		{
+			sendMessage.reg = 254;
+			sendMessage.batch_write = 0;
+			sendMessage.batch = 0;
+		}
+
+		comm_sendPackage(&sendMessage);
+
+		comm_sm = 0;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+////////////////////USART intern functions////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 ISR(USART1_UDRE_vect)
 /*************************************************************************
