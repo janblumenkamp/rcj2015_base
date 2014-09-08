@@ -87,7 +87,16 @@ uint8_t hold_t1 = 0;
 
 uint8_t setup = 0; //Start the setup?
 
-uint8_t debug = 0; //Debugmodus, Read from EEPROM in init_sys()
+uint8_t system_status = 0;
+
+uint8_t mot_driver_standby = 0;
+
+uint8_t rgb_led_mode = 0;
+	uint8_t rgb_led_hue = 0;
+	uint8_t rgb_led_sat = 0;
+	uint8_t rgb_led_val = 0;
+
+uint8_t debug = 0;
 uint8_t debug_err_sendOneTime = 0;
 ///////////////////////////////Timer////////////////////////////////////////////
 
@@ -96,6 +105,7 @@ int8_t timer_bt_is_busy = 0;
 int8_t timer_get_tast = 0;
 int8_t timer_mainloop = 0;
 int8_t timer_comm_timeout = -1;
+int8_t timer_comm_mot_to = -1;
 
 uint8_t timer_25ms = 0; //make the upper timers decrement only every 25ms in the timer task
 
@@ -145,7 +155,7 @@ int main(void)
 	comm_init();
 	init_adc();
 
-	mot.off = 1;
+	mot.off = 0;
 	//The higher the task_i of the task is, the higher is the priority
 	
 	tasks[TASK_TIMER_ID].state = -1;
@@ -167,16 +177,10 @@ int main(void)
 	tasks[TASK_ANASENS_ID].task_fct = &task_anasens;
 
 	if(get_incrOk())
-	{
-		motor_activate(0); //Shut down motor driver
-		setup = 1;
-	}
+		debug = 1;
 	else
-	{
-		motor_activate(1); //Activate motor driver
-		setup = 0;
-	}
-	
+		debug = 0;
+
 	sei(); //Enable global interrupts. The Operating System and every task in it is running now and the cam already can regulate its initial aparture
 
 	bt_putStr_P(PSTR("\r\n\n\n\n\n\n\n\n"));
@@ -185,32 +189,25 @@ int main(void)
 	bt_putStr_P(PSTR("–––––––––––––––––––––––\r\n"));
 	bt_putStr_P(PSTR("Jugend Forscht 2015 v1.0\r\n"));
 	bt_putStr_P(PSTR("Subcontroller ATmega2560\r\n"));
-	bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr_P(PSTR(": System initialized, ")); bt_putLong(TASKS_NUM); bt_putStr_P(PSTR(" running tasks.\n\n"));
+	bt_putStr_P(PSTR("Baud rate: "));bt_putLong(UART_COMM_BAUD_RATE); bt_putStr_P(PSTR(" Baud.\r\n"));
+	bt_putStr_P(PSTR("\r\n")); bt_putLong(timer); bt_putStr_P(PSTR(": System initialized, ")); bt_putLong(TASKS_NUM); bt_putStr_P(PSTR(" running tasks.\n\n"));
 	
 	if(check_res)
 	{
 		motor_activate(0); //Shut down motor driver
-		if(debug > 0){bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr(PSTR(": WARNING: RECOVERED AFTER AN UNEXPECTED SHUTDOWN!!!\n\n"));}
+		if(debug > 0){bt_putStr_P(PSTR("\r\n")); bt_putLong(timer); bt_putStr(PSTR(": WARNING: RECOVERED AFTER AN UNEXPECTED SHUTDOWN!!!\n\n"));}
 		_delay_ms(5000);
 	}
 
 	wdt_enable(WDTO_1S); //activate watchdog
 
-	uint8_t *ptr[10];
-
-	uint32_t var = 0;
-
-	ptr[10] = (uint8_t *) &var;
-
-	ptr[10] ++;
-	*ptr[10] = 10;
-	bt_putLong(var);
 	while(1)
     {
 		wdt_reset();
 
 		////////////////////////////////////////////////////////////////////////////
 		comm_handler(); //Handle and respond to comm requests.
+		comm_reg_gateway();
 
 		////////////////////////////////////////////////////////////////////////////
 		if(get_t1())
@@ -274,7 +271,10 @@ int main(void)
 			////////////////////////////////////////////////////////////////////////////
 			//LED heartbeat
 
-			led_rgb(led_heartbeatColor, led_fault, led_top);
+			if(rgb_led_mode == 0)
+				led_rgb(led_heartbeatColor, led_fault, led_top);
+			else
+				led_hsvToRgb(rgb_led_hue, rgb_led_sat, rgb_led_val);
 
 			timer_mainloop = TIMER_MAINLOOP;
 		}
@@ -289,13 +289,20 @@ int main(void)
 int8_t task_speedreg(int8_t state)
 {
 	//Turn motor off?
-	if(	mot.off || mot.off_invisible)
+	if(mot.off)// || mot.off_invisible)
 	{
 		mot.d[LEFT].speed.to = 0;
 		mot.d[RIGHT].speed.to = 0;
 	}
-	controlSpeed(); //Speed Regulation
-	
+
+	if(mot_driver_standby)
+		motor_activate(0); //Shut down motor driver
+	else
+	{
+		motor_activate(1); //Activate motor driver
+		controlSpeed(); //Speed Regulation
+	}
+
 	return 0;
 }
 
@@ -355,6 +362,8 @@ int8_t task_timer(int8_t state)
 			timer_mainloop --;
 		if(timer_comm_timeout > 0)
 			timer_comm_timeout --;
+		if(timer_comm_mot_to > 0)
+			timer_comm_mot_to --;
 
 		timer_25ms = 0;
 	}

@@ -253,6 +253,7 @@ void groundSens_setLED(uint8_t brightness)
 
 ///////////////////////////////////////////////////////////////////////////////
 int32_t enc_start[2];
+int16_t mot_reg_integral[2]; //I-Part of the speed regulator
 
 MOTOR_ROB_t mot;
 
@@ -267,7 +268,9 @@ void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 40Hz au
 
 		if(mot.d[i].speed.to != 0)
 		{
-			pwr[i] = ((mot.d[i].speed.to - mot.d[i].speed.is)*2.4);
+			int16_t e = (mot.d[i].speed.to - mot.d[i].speed.is);
+			mot_reg_integral[i] += e;
+			pwr[i] = (e * 2.4) + (mot_reg_integral[i] / 10);
 			if(pwr[i] > SPEED_MAX)
 				pwr[i] = SPEED_MAX;
 			if(pwr[i] < -SPEED_MAX)

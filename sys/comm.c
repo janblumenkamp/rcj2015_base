@@ -15,6 +15,8 @@
 #include "comm.h"
 #include "uart.h"
 #include "bluetooth.h"
+#include "funktionen.h"
+#include "system.h"
 
 #define COMM_BAUD_SELECT(baudRate,xtalCpu)  (((xtalCpu) + 8UL * (baudRate)) / (16UL * (baudRate)) -1UL)
 
@@ -25,7 +27,7 @@ static volatile unsigned char UART1_TxBuf[UART_TX_BUFFER_SIZE];
 static volatile unsigned char UART1_TxHead;
 static volatile unsigned char UART1_TxTail;
 
-static volatile uint8_t comm_reg[COMM_REGSIZE];
+volatile uint8_t comm_reg[COMM_REGISTERS_CNT];
 
 comm_msg_t receivedMessage;
 uint8_t messageBuffer[COMM_BUFSIZE];
@@ -47,9 +49,6 @@ void comm_init(void)
 ///		if receives one
 
 volatile uint8_t comm_sm = WAITFORPACKAGE; //statemachine
-
-uint8_t chk_lsb = 0;
-uint8_t chk_msb = 0;
 
 ISR(USART1_RX_vect)
 /*************************************************************************
@@ -92,12 +91,10 @@ Purpose:  called when the UART1 has received a character
 
 	case GET_CHK_LSB: //Checksum LSB
 		receivedMessage.checksum = data << 8;
-		chk_lsb = data;
 		comm_sm = GET_CHK_MSB;
 		break;
 	case GET_CHK_MSB:
 		receivedMessage.checksum |= data;
-		chk_msb = data;
 		//Received the package. Let the slave process and respond to it!
 		comm_sm = BUSY;
 		break;
@@ -159,42 +156,49 @@ void comm_handler(void)
 {
 	if(comm_sm == BUSY) //new package arrived!
 	{
-		bt_putStr("batchlength: "); bt_putLong(receivedMessage.batch);bt_putStr(", write: ");bt_putLong(receivedMessage.batch);bt_putStr("\n");
-		bt_putStr("lsb: "); bt_putLong(chk_lsb);bt_putStr("\n");
-		bt_putStr("msb: "); bt_putLong(chk_msb);bt_putStr("\n");
-
-
-		bt_putStr("Received Package... Process!\n");
+		if(debug)	bt_putStr_P(PSTR("Received Package... Process!\n"));
 
 		TOGGLE_MAIN_LED(); //Toggle LED on the RNmega Board
 
 		//Process...
 		if(comm_calcChecksum(&receivedMessage) == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
 		{
-			bt_putStr("Checksum matches!\n");
+			if(debug) bt_putStr_P(PSTR("Checksum matches!\n"));
 
 			sendMessage.reg = receivedMessage.reg;
 			if(receivedMessage.batch_write) //Master wants to write into slave
 			{
-				bt_putStr("Write access! Write ");
-				bt_putLong(receivedMessage.batch);
-				bt_putStr(" bytes beginning from register ");
-				bt_putLong(receivedMessage.reg);
-				bt_putStr("!\n ");
+				if(debug)
+				{
+					bt_putStr_P(PSTR("Write access! Write "));
+					bt_putLong(receivedMessage.batch);
+					bt_putStr_P(PSTR(" bytes beginning from register "));
+					bt_putLong(receivedMessage.reg);
+					bt_putStr_P(PSTR("!\n "));
+				}
+
 				for(uint8_t i = 0; i < receivedMessage.batch; i++)
 				{
 					comm_reg[receivedMessage.reg + i] = receivedMessage.data[i];
 				}
 				sendMessage.batch_write = 0;
 				sendMessage.batch = 0;
+
+				if((receivedMessage.reg >= COMM_MOT_SPEED_L_TO) && (receivedMessage.reg <= COMM_MOT_DRIVER_STANDBY))
+				{
+					timer_comm_mot_to = TIMER_COMM_MOT_TO; //Set timeout
+				}
 			}
 			else //Master wants to read -> Slave writes to master
 			{
-				bt_putStr("Read access! Read ");
-				bt_putLong(receivedMessage.batch);
-				bt_putStr(" bytes beginning from register ");
-				bt_putLong(receivedMessage.reg);
-				bt_putStr("!\n ");
+				if(debug)
+				{
+					bt_putStr_P(PSTR("Read access! Read "));
+					bt_putLong(receivedMessage.batch);
+					bt_putStr_P(PSTR(" bytes beginning from register "));
+					bt_putLong(receivedMessage.reg);
+					bt_putStr_P(PSTR("!\n "));
+				}
 
 				sendMessage.batch_write = 1;
 				sendMessage.batch = receivedMessage.batch;
@@ -203,12 +207,15 @@ void comm_handler(void)
 		}
 		else //Send error message.
 		{
-			bt_putStr("Checksum does not match! Checksum calc: ");
-			bt_putLong(comm_calcChecksum(&receivedMessage));
-			bt_putCh('\n');
-			bt_putStr("Received checksum: ");
-			bt_putLong(receivedMessage.checksum);
-			bt_putCh('\n');
+			if(debug)
+			{
+				bt_putStr_P(PSTR("Checksum does not match! Checksum calc: "));
+				bt_putLong(comm_calcChecksum(&receivedMessage));
+				bt_putStr_P(PSTR("\n"));
+				bt_putStr_P(PSTR("Received checksum: "));
+				bt_putLong(receivedMessage.checksum);
+				bt_putStr_P(PSTR("\n"));
+			}
 			sendMessage.reg = 255; //Register 0xff: Error
 			sendMessage.batch_write = 0;
 			sendMessage.batch = 0;
@@ -223,10 +230,59 @@ void comm_handler(void)
 		if(timer_comm_timeout == 0)
 		{
 			timer_comm_timeout = -1;
-			bt_putStr("Timeout!\n");
+			if(debug) bt_putStr_P(PSTR("Timeout!\n"));
 			comm_sm = WAITFORPACKAGE;
 		}
 	}
+
+	if(timer_comm_mot_to == 0) //No new speed/motor activity commands for TIMER_COMM_MOT_TO ms. Stop motors.
+	{
+		timer_comm_mot_to = -1;
+		mot.d[LEFT].speed.to = 0;
+		mot.d[RIGHT].speed.to = 0;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+/// \brief comm_reg_gateway
+///		interface between the comm_reg registers and the content of the register.
+///		Manages to match >8bit variables into the register, reads out variables etc...
+///		Has to be called as often as possible!
+
+void comm_reg_gateway(void)
+{
+	comm_reg[COMM_SYSTEMSTATUS] = system_status;
+	comm_reg[COMM_DIST_BACK_RIGHT_LSB] = dist[LIN][BACK][RIGHT] & 0xff;		comm_reg[COMM_DIST_BACK_RIGHT_MSB] = (dist[LIN][BACK][RIGHT] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_RIGHT_BACK_LSB] = dist[LIN][RIGHT][BACK] & 0xff;		comm_reg[COMM_DIST_RIGHT_BACK_MSB] = (dist[LIN][RIGHT][BACK] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_LEFT_BACK_LSB] = dist[LIN][LEFT][BACK] & 0xff;		comm_reg[COMM_DIST_LEFT_BACK_MSB] = (dist[LIN][LEFT][BACK] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_BACK_LEFT_LSB] = dist[LIN][BACK][LEFT] & 0xff;		comm_reg[COMM_DIST_BACK_LEFT_MSB] = (dist[LIN][BACK][LEFT] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_FRONT_FRONT_LSB] = dist[LIN][FRONT][FRONT] & 0xff;	comm_reg[COMM_DIST_FRONT_FRONT_MSB] = (dist[LIN][FRONT][FRONT] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_BACK_BACK_LSB] = dist[LIN][BACK][BACK] & 0xff;		comm_reg[COMM_DIST_BACK_BACK_MSB] = (dist[LIN][BACK][BACK] & 0xff00) >> 8;
+	//comm_reg[COMM_ADC6_LSB] //Not used
+	comm_reg[COMM_DIST_DOWN_LSB] = dist_down & 0xff;						comm_reg[COMM_DIST_DOWN_MSB] = (dist_down & 0xff00) >> 8;
+	//comm_reg[COMM_ADC8_LSB] //Not used
+	comm_reg[COMM_ADC_BATTERY_RAW_LSB] = batt_raw & 0xff;					comm_reg[COMM_ADC_BATTERY_RAW_MSB] = (batt_raw & 0xff00) >> 8;
+	comm_reg[COMM_DIST_FRONT_LEFT_LSB] = dist[LIN][FRONT][LEFT] & 0xff;		comm_reg[COMM_DIST_FRONT_LEFT_MSB] = (dist[LIN][FRONT][LEFT] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_LEFT_FRONT_LSB] = dist[LIN][LEFT][FRONT] & 0xff;		comm_reg[COMM_DIST_LEFT_FRONT_MSB] = (dist[LIN][LEFT][FRONT] & 0xff00) >> 8;
+	comm_reg[COMM_SENS_IMPASSE_1_LSB] = groundsens_l & 0xff;				comm_reg[COMM_SENS_IMPASSE_1_MSB] = (groundsens_l & 0xff00) >> 8;
+	comm_reg[COMM_SENS_IMPASSE_2_LSB] = groundsens_r & 0xff;				comm_reg[COMM_SENS_IMPASSE_2_MSB] = (groundsens_r & 0xff00) >> 8;
+	comm_reg[COMM_DIST_RIGHT_FRONT_LSB] = dist[LIN][RIGHT][FRONT] & 0xff;	comm_reg[COMM_DIST_RIGHT_FRONT_MSB] = (dist[LIN][RIGHT][FRONT] & 0xff00) >> 8;
+	comm_reg[COMM_DIST_FRONT_RIGHT_LSB] = dist[LIN][FRONT][RIGHT] & 0xff;	comm_reg[COMM_DIST_FRONT_RIGHT_MSB] = (dist[LIN][FRONT][RIGHT] & 0xff00) >> 8;
+	comm_reg[COMM_BATTERY_MV_LSB] = batt_mV & 0xff;							comm_reg[COMM_BATTERY_MV_LSB] = (batt_mV & 0xff00) >> 8;
+	comm_reg[COMM_BATTERY_PERCENT] = batt_percent;
+	comm_reg[COMM_MOT_ENC_L_LSB_0] = mot.d[LEFT].enc & 0x000000ff;			comm_reg[COMM_MOT_ENC_L_1] = (mot.d[LEFT].enc & 0x0000ff00) >> 8;
+		comm_reg[COMM_MOT_ENC_L_2] = (mot.d[LEFT].enc & 0x00ff0000) >> 16;	comm_reg[COMM_MOT_ENC_L_MSB_3] = (mot.d[LEFT].enc & 0xff000000) >> 24;
+	comm_reg[COMM_MOT_ENC_R_LSB_0] = mot.d[RIGHT].enc & 0x000000ff;			comm_reg[COMM_MOT_ENC_R_1] = (mot.d[RIGHT].enc & 0x0000ff00) >> 8;
+		comm_reg[COMM_MOT_ENC_R_2] = (mot.d[RIGHT].enc & 0x00ff0000) >> 16;	comm_reg[COMM_MOT_ENC_R_MSB_3] = (mot.d[RIGHT].enc & 0xff000000) >> 24;
+	comm_reg[COMM_MOT_SPEED_L_IS] = (uint8_t)mot.d[LEFT].speed.is;
+	comm_reg[COMM_MOT_SPEED_R_IS] = (uint8_t)mot.d[RIGHT].speed.is;
+	mot.d[LEFT].speed.to = (int16_t) comm_reg[COMM_MOT_SPEED_L_TO];
+	mot.d[RIGHT].speed.to = (int16_t) comm_reg[COMM_MOT_SPEED_R_TO];
+	mot_driver_standby = comm_reg[COMM_MOT_DRIVER_STANDBY];
+	rgb_led_mode = comm_reg[COMM_LED_MODE];
+	rgb_led_hue = comm_reg[COMM_LED_HUE];
+	rgb_led_sat = comm_reg[COMM_LED_SAT];
+	rgb_led_val = comm_reg[COMM_LED_VAL];
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -248,6 +304,7 @@ Purpose:  called when the UART1 is ready to transmit the next byte
 		UART1_TxTail = tmptail;
 		/* get one byte from buffer and write it to UART */
 		UDR1 = UART1_TxBuf[tmptail];  /* start transmission */
+
 	}else{
 		/* tx buffer empty, disable UDRE interrupt */
 		UCSR1B &= ~_BV(UDRIE1);
@@ -297,7 +354,6 @@ Returns:  none
 void uart1_putc(unsigned char data)
 {
 	unsigned char tmphead;
-
 
 	tmphead  = (UART1_TxHead + 1) & (UART_TX_BUFFER_SIZE - 1);
 
