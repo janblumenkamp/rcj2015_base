@@ -95,6 +95,7 @@ int8_t timer_entpr_tast = 0;
 int8_t timer_bt_is_busy = 0;
 int8_t timer_get_tast = 0;
 int8_t timer_mainloop = 0;
+int8_t timer_comm_timeout = -1;
 
 uint8_t timer_25ms = 0; //make the upper timers decrement only every 25ms in the timer task
 
@@ -184,17 +185,26 @@ int main(void)
 	bt_putStr_P(PSTR("–––––––––––––––––––––––\r\n"));
 	bt_putStr_P(PSTR("Jugend Forscht 2015 v1.0\r\n"));
 	bt_putStr_P(PSTR("Subcontroller ATmega2560\r\n"));
-	bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr_P(PSTR(": System initialized, ")); bt_putLong(TASKS_NUM); bt_putStr_P(PSTR(" running tasks."));
+	bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr_P(PSTR(": System initialized, ")); bt_putLong(TASKS_NUM); bt_putStr_P(PSTR(" running tasks.\n\n"));
 	
 	if(check_res)
 	{
 		motor_activate(0); //Shut down motor driver
-		if(debug > 0){bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr(PSTR(": WARNING: RECOVERED AFTER AN UNEXPECTED SHUTDOWN!!!"));}
+		if(debug > 0){bt_putStr_P(PSTR("\n\r")); bt_putLong(timer); bt_putStr(PSTR(": WARNING: RECOVERED AFTER AN UNEXPECTED SHUTDOWN!!!\n\n"));}
 		_delay_ms(5000);
 	}
 
 	wdt_enable(WDTO_1S); //activate watchdog
 
+	uint8_t *ptr[10];
+
+	uint32_t var = 0;
+
+	ptr[10] = (uint8_t *) &var;
+
+	ptr[10] ++;
+	*ptr[10] = 10;
+	bt_putLong(var);
 	while(1)
     {
 		wdt_reset();
@@ -343,6 +353,8 @@ int8_t task_timer(int8_t state)
 			timer_get_tast --;
 		if(timer_mainloop > 0)
 			timer_mainloop --;
+		if(timer_comm_timeout > 0)
+			timer_comm_timeout --;
 
 		timer_25ms = 0;
 	}

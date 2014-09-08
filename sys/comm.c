@@ -6,65 +6,10 @@
 ///
 /// Protokoll:
 ///		<Startbyte 0xAB><Register/Command><Batchlength n>(n*<Data>)<Checksumme1><Checksumme2> -> 5 + n Byte pro Paket
-///		Slave antwortet genau so.
+///		Slave antwortet genau so. Bei fehlerhaftem Paket antwortet der Slave mit batch = 0 und Register = 255.
 ///		Batch: Bit 0..6: Batchlänge, Bit 7: Write access
 ///
-///	Register/Command:
-/// 0			Status (succeed/error)
-/// 1			DIST_BACK_RIGHT LSB
-/// 2			DIST_BACK_RIGHT MSB
-/// 3			DIST_RIGHT_BACK LSB
-/// 4			DIST_RIGHT_BACK MSB
-/// 5			DIST_LEFT_BACK  LSB
-/// 6			DIST_LEFT_BACK  MSB
-/// 7			DIST_BACK_LEFT  LSB
-/// 8			DIST_BACK_LEFT  MSB
-/// 9			DIST_FRONT_FRONT LSB
-/// 10			DIST_FRONT_FRONT MSB
-/// 11			DIST_BACK_BACK   LSB
-/// 12			DIST_BACK_BACK   MSB
-/// 13			ADC 6 LSB
-/// 14			ADC 6 MSB
-/// 15			DIST_DOWN LSB
-/// 16			DIST_DOWN MSB
-/// 17			ADC 8 LSB
-/// 18			ADC 8 MSB
-/// 19			ADC_BATTERY LSB
-/// 20			ADC_BATTERY MSB
-/// 21			DIST_FRONT_LEFT LSB
-/// 22			DIST_FRONT_LEFT MSB
-/// 23			DIST_LEFT_FRONT LSB
-/// 24			DIST_LEFT_FRONT MSB
-/// 25			SENS_IMPASSE_1 LSB
-/// 26			SENS_IMPASSE_1 MSB
-/// 27			SENS_IMPASSE_1 LSB
-/// 28			SENS_IMPASSE_1 MSB
-/// 29			DIST_RIGHT_FRONT LSB
-/// 30			DIST_RIGHT_FRONT MSB
-/// 31			DIST_FRONT_RIGHT LSB
-/// 32			DIST_FRONT_RIGHT MSB
-/// 33			Batterie in mV LSB
-/// 34			Batterie in mV MSB
-/// 35			Batterie in %
-/// 36			Motor Encoder L LSB
-/// 37			Motor Encoder L
-/// 38			Motor Encoder L
-/// 39			Motor Encoder L MSB
-/// 40			Motor Encoder R LSB
-/// 41			Motor Encoder R
-/// 42			Motor Encoder R
-/// 43			Motor Encoder R MSB
-/// 44			Motor Geschwindigkeit L ist
-/// 45			Motor Geschwindigkeit R ist
-/// 46			Motor Geschwindigkeit L soll
-/// 47			Motor Geschwindigkeit R soll
-/// 48			Motortreiber aktiv
-/// 49			LED Modus
-/// 50			LED Hue
-/// 51			LED Saturation
-/// 52			LED Value
-///
-////////////////////////////////////////////////////////////////////////////////
+
 
 #include "main.h"
 #include "comm.h"
@@ -101,7 +46,10 @@ void comm_init(void)
 ///		listens to the uart and puts a message into a message struct
 ///		if receives one
 
-static volatile uint8_t comm_sm = 0; //statemachine
+volatile uint8_t comm_sm = WAITFORPACKAGE; //statemachine
+
+uint8_t chk_lsb = 0;
+uint8_t chk_msb = 0;
 
 ISR(USART1_RX_vect)
 /*************************************************************************
@@ -109,58 +57,74 @@ Function: UART1 Receive Complete interrupt
 Purpose:  called when the UART1 has received a character
 **************************************************************************/
 {
-	unsigned char data;
+	timer_comm_timeout = TIMER_COMM_TIMEOUT;
 	static int8_t comm_batch_i = 0;
 
 	/* read UART status register and UART data register */
-	data = UDR1;
-
-	bt_putCh(data);
-	bt_putCh(' ');
+	unsigned char data = UDR1;
 
 	switch (comm_sm) {
-	case 0:
+	case WAITFORPACKAGE:
 		if(data == 0xAB)
-			comm_sm = 1;
+			comm_sm = GET_REGISTER;
 		break;
-	case 1:
+	case GET_REGISTER:
 		receivedMessage.reg = data;
-		comm_sm = 2;
+		comm_sm = GET_BATCH;
 		break;
-	case 2:
+	case GET_BATCH:
 		receivedMessage.batch = (data & COMM_BATCH);
 		receivedMessage.batch_write = (data & COMM_BATCH_WRITE) >> 7;
-
 		comm_batch_i = 0;
 
 		if(receivedMessage.batch_write)
-			comm_sm = 3; //Write access! Write into registers.
+			comm_sm = GET_DATA; //Write access! Write into registers.
 		else
-			comm_sm = 4; //The master wants ro read. Continue with checksum.
+			comm_sm = GET_CHK_LSB; //The master wants ro read. Continue with checksum.
 
 		break;
-	case 3: //Master wants to write in registers
-		if(comm_batch_i < receivedMessage.batch)
-		{
-			receivedMessage.data[comm_batch_i] = data;
-			comm_batch_i ++;
-		}
-		else
-			comm_sm = 4; //checksum
+	case GET_DATA: //Master wants to write in registers
+		receivedMessage.data[comm_batch_i] = data;
+		comm_batch_i ++;
+
+		if(comm_batch_i <= receivedMessage.batch)
+			break;
+
+	case GET_CHK_LSB: //Checksum LSB
+		receivedMessage.checksum = data << 8;
+		chk_lsb = data;
+		comm_sm = GET_CHK_MSB;
 		break;
-	case 4: //Checksum LSB
-		receivedMessage.checksum = data;
-		comm_sm = 5;
-		break;
-	case 5:
-		receivedMessage.checksum |= (data << 8);
+	case GET_CHK_MSB:
+		receivedMessage.checksum |= data;
+		chk_msb = data;
 		//Received the package. Let the slave process and respond to it!
-		comm_sm = 6;
+		comm_sm = BUSY;
 		break;
-	case 6: break; //IDLE, wait for processing of query. Only listen for new packages if processed and answered.
-	default: comm_sm = 0;
+	case BUSY: break; //BUSY, wait for processing of query. Only listen for new packages if processed and answered.
+	default: comm_sm = WAITFORPACKAGE;
 		break;
 	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+/// \brief comm_calcChecksum
+///		calculates checksum of the given message and returns it (does not save
+///		it into the msg.checksum element!!!)
+/// \param msg
+/// \return checksum
+
+uint16_t comm_calcChecksum(comm_msg_t *msg)
+{
+	uint16_t checksum = 0xAB + msg->reg + ((msg->batch_write << 7) | msg->batch);
+	if(msg->batch_write)
+	{
+		for(uint8_t i = 0; i < msg->batch; i++)
+		{
+			checksum += msg->data[i];
+		}
+	}
+	return checksum;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -171,18 +135,19 @@ Purpose:  called when the UART1 has received a character
 
 void comm_sendPackage(comm_msg_t *msg)
 {
-	msg->checksum = 0xAB + msg->reg + (msg->batch_write | msg->batch);
-
 	uart1_putc(0xAB);
 	uart1_putc(msg->reg);
-	uart1_putc(msg->batch_write | msg->batch);
-	for(uint8_t i = 0; i < msg->batch; i++)
+	uart1_putc((msg->batch_write << 7) | msg->batch);
+	if(msg->batch_write)
 	{
-		uart1_putc(msg->data[i]);
-		msg->checksum += msg->data[i];
+		for(uint8_t i = 0; i < msg->batch; i++)
+		{
+			uart1_putc(msg->data[i]);
+		}
 	}
+	msg->checksum = comm_calcChecksum(msg);
+	uart1_putc(msg->checksum >> 8);
 	uart1_putc(msg->checksum & 0xff);
-	uart1_putc((msg->checksum & 0xff00) >> 8);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -192,25 +157,30 @@ void comm_sendPackage(comm_msg_t *msg)
 
 void comm_handler(void)
 {
-	if(comm_sm == 6) //new package arrived!
+	if(comm_sm == BUSY) //new package arrived!
 	{
+		bt_putStr("batchlength: "); bt_putLong(receivedMessage.batch);bt_putStr(", write: ");bt_putLong(receivedMessage.batch);bt_putStr("\n");
+		bt_putStr("lsb: "); bt_putLong(chk_lsb);bt_putStr("\n");
+		bt_putStr("msb: "); bt_putLong(chk_msb);bt_putStr("\n");
+
+
+		bt_putStr("Received Package... Process!\n");
+
 		TOGGLE_MAIN_LED(); //Toggle LED on the RNmega Board
 
 		//Process...
-		int16_t checksum_calc = 0xAB;
-		checksum_calc += receivedMessage.reg;
-		checksum_calc += (receivedMessage.batch_write | receivedMessage.batch);
-		if(receivedMessage.batch & COMM_BATCH_WRITE)
+		if(comm_calcChecksum(&receivedMessage) == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
 		{
-			for(uint8_t i = 0; i < receivedMessage.batch; i++)
-				checksum_calc += receivedMessage.data[i];
-		}
+			bt_putStr("Checksum matches!\n");
 
-		if(checksum_calc == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
-		{
-			sendMessage.reg = 255;
+			sendMessage.reg = receivedMessage.reg;
 			if(receivedMessage.batch_write) //Master wants to write into slave
 			{
+				bt_putStr("Write access! Write ");
+				bt_putLong(receivedMessage.batch);
+				bt_putStr(" bytes beginning from register ");
+				bt_putLong(receivedMessage.reg);
+				bt_putStr("!\n ");
 				for(uint8_t i = 0; i < receivedMessage.batch; i++)
 				{
 					comm_reg[receivedMessage.reg + i] = receivedMessage.data[i];
@@ -220,6 +190,12 @@ void comm_handler(void)
 			}
 			else //Master wants to read -> Slave writes to master
 			{
+				bt_putStr("Read access! Read ");
+				bt_putLong(receivedMessage.batch);
+				bt_putStr(" bytes beginning from register ");
+				bt_putLong(receivedMessage.reg);
+				bt_putStr("!\n ");
+
 				sendMessage.batch_write = 1;
 				sendMessage.batch = receivedMessage.batch;
 				sendMessage.data = (uint8_t *) &comm_reg[receivedMessage.reg];
@@ -227,14 +203,29 @@ void comm_handler(void)
 		}
 		else //Send error message.
 		{
-			sendMessage.reg = 254;
+			bt_putStr("Checksum does not match! Checksum calc: ");
+			bt_putLong(comm_calcChecksum(&receivedMessage));
+			bt_putCh('\n');
+			bt_putStr("Received checksum: ");
+			bt_putLong(receivedMessage.checksum);
+			bt_putCh('\n');
+			sendMessage.reg = 255; //Register 0xff: Error
 			sendMessage.batch_write = 0;
 			sendMessage.batch = 0;
 		}
 
 		comm_sendPackage(&sendMessage);
 
-		comm_sm = 0;
+		comm_sm = WAITFORPACKAGE;
+	}
+	else if(comm_sm != WAITFORPACKAGE)
+	{
+		if(timer_comm_timeout == 0)
+		{
+			timer_comm_timeout = -1;
+			bt_putStr("Timeout!\n");
+			comm_sm = WAITFORPACKAGE;
+		}
 	}
 }
 

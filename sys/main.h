@@ -55,12 +55,14 @@ extern uint8_t fatal_err;
 #define TIMER_GET_TAST		50/25	//So lange muss der Taster gedrückt werden, bis eine Eingabe registriert wird
 #define TIMER_BT_IS_BUSY	127 //Timer für Bluetooth DIsplayanzeige (Nach Funkstille Anzeige deaktivieren)
 #define TIMER_MAINLOOP		1
+#define TIMER_COMM_TIMEOUT	1
 
 extern uint32_t timer;
 extern int8_t timer_entpr_tast;
 extern int8_t timer_bt_is_busy;
 extern int8_t timer_get_tast;
 extern int8_t timer_mainloop;
+extern int8_t timer_comm_timeout;
 
 #define TRUE 1
 #define FALSE 0
