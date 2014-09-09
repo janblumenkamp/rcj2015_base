@@ -41,7 +41,8 @@ extern task tasks[TASKS_NUM];
 
 /////////////////////////////////////////
 
-#define TOGGLE_MAIN_LED() PORTD ^= (1<<PD5);
+#define MAIN_LED_ON()	PORTD |= (1<<PD5);
+#define MAIN_LED_OFF()	PORTD &= ~(1<<PD5);
 
 enum DIRECTIONS {LEFT, RIGHT, FRONT, BACK};
 
@@ -67,6 +68,7 @@ extern uint8_t debug;
 #define TIMER_MAINLOOP		1
 #define TIMER_COMM_TIMEOUT	1
 #define TIMER_COMM_MOT_TO	2000/25 //If there came no new speed value for this time
+#define TIMER_NOCOMM		3000/25 //No communication for 3s
 
 extern uint32_t timer;
 extern int8_t timer_entpr_tast;
@@ -75,6 +77,7 @@ extern int8_t timer_get_tast;
 extern int8_t timer_mainloop;
 extern int8_t timer_comm_timeout;
 extern int8_t timer_comm_mot_to;
+extern int8_t timer_nocomm;
 
 #define TRUE 1
 #define FALSE 0

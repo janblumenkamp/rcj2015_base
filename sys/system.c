@@ -296,22 +296,9 @@ void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 25Hz au
 
 	//bt_putStr("\e[2J"); //clear//
 	//bt_putStr("\e[H");
-	bt_putLong(mot.d[LEFT].speed.to); bt_putStr("\t"); bt_putLong(mot.d[RIGHT].speed.to); bt_putStr("\n");
+	/*bt_putLong(mot.d[LEFT].speed.to); bt_putStr("\t"); bt_putLong(mot.d[RIGHT].speed.to); bt_putStr("\n");
 	bt_putLong(mot.d[LEFT].speed.is); bt_putStr("\t"); bt_putLong(mot.d[RIGHT].speed.is); bt_putStr("\n");
 	bt_putLong(mot_reg_integral[LEFT]);bt_putStr("\t"); bt_putLong(mot_reg_integral[RIGHT]); bt_putStr("\n");
 	bt_putLong(pwr[LEFT]);bt_putStr("\t"); bt_putLong(pwr[RIGHT]); bt_putStr("\n");
-	bt_putStr("\n");
-
-
-	/*bt_putStr("\n\r");
-	bt_putLong(e_speed_l);
-	bt_putStr("\n\r");
-	bt_putStr("\n\r");
-	bt_putLong(i_speed_l);
-	bt_putStr("\n\r");
-	bt_putLong(i_speed_r);*/
-	/*bt_putStr("\n\r");
-	bt_putLong(timer);
-	bt_putStr(" ");
-	bt_putLong(pwr_left);*/
+	bt_putStr("\n");*/
 }

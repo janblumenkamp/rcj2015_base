@@ -156,9 +156,11 @@ void comm_handler(void)
 {
 	if(comm_sm == BUSY) //new package arrived!
 	{
+		timer_nocomm = TIMER_NOCOMM;
+
 		if(debug)	bt_putStr_P(PSTR("Received Package... Process!\n"));
 
-		TOGGLE_MAIN_LED(); //Toggle LED on the RNmega Board
+		MAIN_LED_ON(); //Toggle LED on the RNmega Board (After sending answer powered off again)
 
 		//Process...
 		if(comm_calcChecksum(&receivedMessage) == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
@@ -224,6 +226,8 @@ void comm_handler(void)
 		comm_sendPackage(&sendMessage);
 
 		comm_sm = WAITFORPACKAGE;
+
+		MAIN_LED_OFF();
 	}
 	else if(comm_sm != WAITFORPACKAGE)
 	{

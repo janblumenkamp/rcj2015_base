@@ -106,6 +106,7 @@ int8_t timer_get_tast = 0;
 int8_t timer_mainloop = 0;
 int8_t timer_comm_timeout = -1;
 int8_t timer_comm_mot_to = -1;
+int8_t timer_nocomm = -1;
 
 uint8_t timer_25ms = 0; //make the upper timers decrement only every 25ms in the timer task
 
@@ -236,6 +237,8 @@ int main(void)
 		{
 			if(check_res || fatal_err)	//Flashing of the Info LED when there is an error
 				led_fault = 1;
+			else if(timer_nocomm == 0)
+				led_fault = 85; //Blink green if no communication/waiting for command
 			else
 				led_fault = 0;
 
@@ -293,11 +296,6 @@ int8_t task_speedreg(int8_t state) //Period: 25Hz
 	{
 		mot.d[LEFT].speed.to = 0;
 		mot.d[RIGHT].speed.to = 0;
-	}
-	else
-	{
-		mot.d[LEFT].speed.to = 20;
-		mot.d[RIGHT].speed.to = 20;
 	}
 
 	if(mot_driver_standby)
@@ -371,6 +369,8 @@ int8_t task_timer(int8_t state)
 			timer_comm_timeout --;
 		if(timer_comm_mot_to > 0)
 			timer_comm_mot_to --;
+		if(timer_nocomm > 0)
+			timer_nocomm --;
 
 		timer_25ms = 0;
 	}
