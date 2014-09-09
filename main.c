@@ -286,13 +286,18 @@ int main(void)
 //////////////////////////TASK SPEEDREG/////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-int8_t task_speedreg(int8_t state)
+int8_t task_speedreg(int8_t state) //Period: 25Hz
 {
 	//Turn motor off?
 	if(mot.off)// || mot.off_invisible)
 	{
 		mot.d[LEFT].speed.to = 0;
 		mot.d[RIGHT].speed.to = 0;
+	}
+	else
+	{
+		mot.d[LEFT].speed.to = 20;
+		mot.d[RIGHT].speed.to = 20;
 	}
 
 	if(mot_driver_standby)
@@ -302,6 +307,8 @@ int8_t task_speedreg(int8_t state)
 		motor_activate(1); //Activate motor driver
 		controlSpeed(); //Speed Regulation
 	}
+	//bt_putLong(mot.d[RIGHT].enc);
+	//bt_putStr("\r");
 
 	return 0;
 }

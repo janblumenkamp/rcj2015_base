@@ -259,18 +259,27 @@ MOTOR_ROB_t mot;
 
 #define SPEED_MAX 255
 
-void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 40Hz aufgerufen werden!
+void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 25Hz aufgerufen werden!
 {
 	for(uint8_t i = 0; i < 2; i++)
 	{
-		mot.d[i].speed.is = (mot.d[i].enc - enc_start[i]);
+		mot.d[i].speed.is = mot.d[i].enc - enc_start[i]; //Ticks per 40ms (full speed (pwm ~200): 31
 		enc_start[i] = mot.d[i].enc;
 
 		if(mot.d[i].speed.to != 0)
 		{
-			int16_t e = (mot.d[i].speed.to - mot.d[i].speed.is);
-			mot_reg_integral[i] += e;
-			pwr[i] = (e * 2.4) + (mot_reg_integral[i] / 10);
+			if(mot.d[i].speed.to > 35)
+				mot.d[i].speed.to = 35;
+			if(mot.d[i].speed.to < -35)
+				mot.d[i].speed.to = -35;
+
+			int16_t e = mot.d[i].speed.to - mot.d[i].speed.is;
+
+			if(abs(mot_reg_integral[i] + e) < 200)
+				mot_reg_integral[i] += e;
+
+			pwr[i] = (e * (abs(mot.d[i].speed.to) / 3)) + (mot_reg_integral[i]*(abs(mot.d[i].speed.to) / 10));
+
 			if(pwr[i] > SPEED_MAX)
 				pwr[i] = SPEED_MAX;
 			if(pwr[i] < -SPEED_MAX)
@@ -278,6 +287,7 @@ void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 40Hz au
 		}
 		else
 		{
+			mot_reg_integral[i] = 0;
 			pwr[i] = 0;
 		}
 	}
@@ -286,11 +296,13 @@ void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 40Hz au
 
 	//bt_putStr("\e[2J"); //clear//
 	//bt_putStr("\e[H");
-	/*bt_putLong(speed.l.is);
-	bt_putStr("\n\r");
-	bt_putLong(speed.r.is);
-	bt_putStr("\n\r");
-	bt_putStr("\n\r");*/
+	bt_putLong(mot.d[LEFT].speed.to); bt_putStr("\t"); bt_putLong(mot.d[RIGHT].speed.to); bt_putStr("\n");
+	bt_putLong(mot.d[LEFT].speed.is); bt_putStr("\t"); bt_putLong(mot.d[RIGHT].speed.is); bt_putStr("\n");
+	bt_putLong(mot_reg_integral[LEFT]);bt_putStr("\t"); bt_putLong(mot_reg_integral[RIGHT]); bt_putStr("\n");
+	bt_putLong(pwr[LEFT]);bt_putStr("\t"); bt_putLong(pwr[RIGHT]); bt_putStr("\n");
+	bt_putStr("\n");
+
+
 	/*bt_putStr("\n\r");
 	bt_putLong(e_speed_l);
 	bt_putStr("\n\r");
