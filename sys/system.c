@@ -278,7 +278,7 @@ void controlSpeed(void) //eigentliche Geschwindigkeitsregelung, muss mit 25Hz au
 			if(abs(mot_reg_integral[i] + e) < 200)
 				mot_reg_integral[i] += e;
 
-			pwr[i] = (e * (abs(mot.d[i].speed.to) / 3)) + (mot_reg_integral[i]*(abs(mot.d[i].speed.to) / 10));
+			pwr[i] = (e * (abs(mot.d[i].speed.to) / 3)) + (mot_reg_integral[i]*((abs(mot.d[i].speed.to) / 10) + 1));
 
 			if(pwr[i] > SPEED_MAX)
 				pwr[i] = SPEED_MAX;

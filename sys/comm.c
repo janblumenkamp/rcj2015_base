@@ -65,7 +65,10 @@ Purpose:  called when the UART1 has received a character
 	switch (comm_sm) {
 	case WAITFORPACKAGE:
 		if(data == 0xAB)
+		{
+			MAIN_LED_ON(); //Toggle LED on the RNmega Board (After sending answer powered off again)
 			comm_sm = GET_REGISTER;
+		}
 		break;
 	case GET_REGISTER:
 		receivedMessage.reg = data;
@@ -160,8 +163,6 @@ void comm_handler(void)
 
 		if(debug)	bt_putStr_P(PSTR("Received Package... Process!\n"));
 
-		MAIN_LED_ON(); //Toggle LED on the RNmega Board (After sending answer powered off again)
-
 		//Process...
 		if(comm_calcChecksum(&receivedMessage) == receivedMessage.checksum) //Checksum matches, if write access write registers. Sens answer.
 		{
@@ -242,6 +243,8 @@ void comm_handler(void)
 	if(timer_comm_mot_to == 0) //No new speed/motor activity commands for TIMER_COMM_MOT_TO ms. Stop motors.
 	{
 		timer_comm_mot_to = -1;
+		comm_reg[COMM_MOT_SPEED_L_TO] = 0;
+		comm_reg[COMM_MOT_SPEED_R_TO] = 0;
 		mot.d[LEFT].speed.to = 0;
 		mot.d[RIGHT].speed.to = 0;
 	}
@@ -274,14 +277,18 @@ void comm_reg_gateway(void)
 	comm_reg[COMM_DIST_FRONT_RIGHT_LSB] = dist[LIN][FRONT][RIGHT] & 0xff;	comm_reg[COMM_DIST_FRONT_RIGHT_MSB] = (dist[LIN][FRONT][RIGHT] & 0xff00) >> 8;
 	comm_reg[COMM_BATTERY_MV_LSB] = batt_mV & 0xff;							comm_reg[COMM_BATTERY_MV_LSB] = (batt_mV & 0xff00) >> 8;
 	comm_reg[COMM_BATTERY_PERCENT] = batt_percent;
-	comm_reg[COMM_MOT_ENC_L_LSB_0] = mot.d[LEFT].enc & 0x000000ff;			comm_reg[COMM_MOT_ENC_L_1] = (mot.d[LEFT].enc & 0x0000ff00) >> 8;
-		comm_reg[COMM_MOT_ENC_L_2] = (mot.d[LEFT].enc & 0x00ff0000) >> 16;	comm_reg[COMM_MOT_ENC_L_MSB_3] = (mot.d[LEFT].enc & 0xff000000) >> 24;
-	comm_reg[COMM_MOT_ENC_R_LSB_0] = mot.d[RIGHT].enc & 0x000000ff;			comm_reg[COMM_MOT_ENC_R_1] = (mot.d[RIGHT].enc & 0x0000ff00) >> 8;
-		comm_reg[COMM_MOT_ENC_R_2] = (mot.d[RIGHT].enc & 0x00ff0000) >> 16;	comm_reg[COMM_MOT_ENC_R_MSB_3] = (mot.d[RIGHT].enc & 0xff000000) >> 24;
+	comm_reg[COMM_MOT_ENC_L_LSB_0] = (uint8_t)(mot.d[LEFT].enc & 0x000000ff);
+		comm_reg[COMM_MOT_ENC_L_1] = (uint8_t)((mot.d[LEFT].enc & 0x0000ff00) >> 8);
+		comm_reg[COMM_MOT_ENC_L_2] = (uint8_t)((mot.d[LEFT].enc & 0x00ff0000) >> 16);
+		comm_reg[COMM_MOT_ENC_L_MSB_3] = (uint8_t)((mot.d[LEFT].enc & 0xff000000) >> 24);
+	comm_reg[COMM_MOT_ENC_R_LSB_0] = (uint8_t)(mot.d[RIGHT].enc & 0x000000ff);
+		comm_reg[COMM_MOT_ENC_R_1] = (uint8_t)((mot.d[RIGHT].enc & 0x0000ff00) >> 8);
+		comm_reg[COMM_MOT_ENC_R_2] = (uint8_t)((mot.d[RIGHT].enc & 0x00ff0000) >> 16);
+		comm_reg[COMM_MOT_ENC_R_MSB_3] = (uint8_t)((mot.d[RIGHT].enc & 0xff000000) >> 24);
 	comm_reg[COMM_MOT_SPEED_L_IS] = (uint8_t)mot.d[LEFT].speed.is;
 	comm_reg[COMM_MOT_SPEED_R_IS] = (uint8_t)mot.d[RIGHT].speed.is;
-	mot.d[LEFT].speed.to = (int16_t) comm_reg[COMM_MOT_SPEED_L_TO];
-	mot.d[RIGHT].speed.to = (int16_t) comm_reg[COMM_MOT_SPEED_R_TO];
+	mot.d[LEFT].speed.to = (int8_t) comm_reg[COMM_MOT_SPEED_L_TO];
+	mot.d[RIGHT].speed.to = (int8_t) comm_reg[COMM_MOT_SPEED_R_TO];
 	mot_driver_standby = comm_reg[COMM_MOT_DRIVER_STANDBY];
 	rgb_led_mode = comm_reg[COMM_LED_MODE];
 	rgb_led_hue = comm_reg[COMM_LED_HUE];

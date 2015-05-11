@@ -106,7 +106,7 @@ int8_t timer_get_tast = 0;
 int8_t timer_mainloop = 0;
 int8_t timer_comm_timeout = -1;
 int8_t timer_comm_mot_to = -1;
-int8_t timer_nocomm = -1;
+int8_t timer_nocomm = 0;
 
 uint8_t timer_25ms = 0; //make the upper timers decrement only every 25ms in the timer task
 
@@ -159,6 +159,8 @@ int main(void)
 	mot.off = 0;
 	//The higher the task_i of the task is, the higher is the priority
 	
+	MAIN_LED_OFF();
+
 	tasks[TASK_TIMER_ID].state = -1;
 	tasks[TASK_TIMER_ID].period = TASK_PERIOD_TIMER;
 	tasks[TASK_TIMER_ID].elapsedTime = 0;
@@ -188,7 +190,7 @@ int main(void)
 	bt_putStr_P(PSTR("–––––––––––––––––––––––\r\n"));
 	bt_putStr_P(PSTR("| RIOS Scheduler v1.0 |\r\n"));
 	bt_putStr_P(PSTR("–––––––––––––––––––––––\r\n"));
-	bt_putStr_P(PSTR("Jugend Forscht 2015 v1.0\r\n"));
+	bt_putStr_P(PSTR("rcj2015 v2.0\r\n"));
 	bt_putStr_P(PSTR("Subcontroller ATmega2560\r\n"));
 	bt_putStr_P(PSTR("Baud rate: "));bt_putLong(UART_COMM_BAUD_RATE); bt_putStr_P(PSTR(" Baud.\r\n"));
 	bt_putStr_P(PSTR("\r\n")); bt_putLong(timer); bt_putStr_P(PSTR(": System initialized, ")); bt_putLong(TASKS_NUM); bt_putStr_P(PSTR(" running tasks.\n\n"));
@@ -202,6 +204,8 @@ int main(void)
 
 	wdt_enable(WDTO_1S); //activate watchdog
 
+	timer_get_tast = 120;
+
 	while(1)
     {
 		wdt_reset();
@@ -211,24 +215,17 @@ int main(void)
 		comm_reg_gateway();
 
 		////////////////////////////////////////////////////////////////////////////
-		if(get_t1())
+
+		if((timer_get_tast == 0) && (setup == 0))
 		{
-			if((timer_get_tast == 0) && (timer_entpr_tast == 0) && (!hold_t1))
-			{
-				timer_get_tast = TIMER_GET_TAST;
-				hold_t1 = 1;
-			}
-			else if((timer_get_tast == 0) && hold_t1)
-			{
-				hold_t1 = 0;
-				mot.off ^= 1;
-				timer_entpr_tast = TIMER_ENTPR_TAST;
-			}
+			timer_get_tast = -1;
+			mot.off = 0;
 		}
-		else
+
+		if(get_t1()) //Always reset...
 		{
-			timer_get_tast = 0;
-			hold_t1 = 0;
+			mot.off = 1;
+			timer_get_tast = 120;
 		}
 
 		////////////////////LED etc...//////////////////////////////////////
@@ -239,6 +236,8 @@ int main(void)
 				led_fault = 1;
 			else if(timer_nocomm == 0)
 				led_fault = 85; //Blink green if no communication/waiting for command
+			else if(mot.off)
+				led_fault = 30;
 			else
 				led_fault = 0;
 
@@ -305,8 +304,6 @@ int8_t task_speedreg(int8_t state) //Period: 25Hz
 		motor_activate(1); //Activate motor driver
 		controlSpeed(); //Speed Regulation
 	}
-	//bt_putLong(mot.d[RIGHT].enc);
-	//bt_putStr("\r");
 
 	return 0;
 }
